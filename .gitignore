@@ -18,3 +18,9 @@ env/
 
 # Project specific
 gpt_results/
+proj_vla_ugv/
+dataset_for_vla_r7/
+datasets/
+tmp_data/
+*.csv
+.DS_Store
