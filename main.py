@@ -1,9 +1,14 @@
 import base64
-import os.path
+import os
 import re
 import argparse
 from datetime import datetime
 from math import atan2
+from pathlib import Path
+from dotenv import load_dotenv
+
+# .envファイルから環境変数を読み込み
+load_dotenv(Path(__file__).parent / ".env")
 
 import cv2
 import numpy as np
@@ -26,7 +31,7 @@ from llava.utils import disable_torch_init
 from llava.mm_utils import tokenizer_image_token, process_images, get_model_name_from_path
 from llava.conversation import conv_templates
 
-client = OpenAI(api_key="[your-openai-api-key]")
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 OBS_LEN = 10
 FUT_LEN = 10
@@ -150,9 +155,9 @@ def vlm_inference(text=None, images=None, sys_message=None, processor=None, mode
                 }
                 PROMPT_MESSAGES.append(sys_message_dict)
             params = {
-                "model": "gpt-4o-2024-11-20",
+                "model": "gpt-5.2",
                 "messages": PROMPT_MESSAGES,
-                "max_tokens": 400,
+                "max_completion_tokens": 400,
             }
 
             result = client.chat.completions.create(**params)
@@ -245,6 +250,9 @@ if __name__ == '__main__':
     parser.add_argument("--dataroot", type=str, default='datasets/NuScenes')
     parser.add_argument("--version", type=str, default='v1.0-mini')
     parser.add_argument("--method", type=str, default='openemma')
+    parser.add_argument("--no-yolo", action='store_true', help='Skip YOLO3D (for non-CUDA environments)')
+    parser.add_argument("--scene", type=str, default=None, help='Specific scene name to process')
+    parser.add_argument("--all-scenes", action='store_true', help='Process all scenes')
     args = parser.parse_args()
 
     print(f"{args.model_path}")
@@ -314,8 +322,16 @@ if __name__ == '__main__':
         name = scene['name']
         description = scene['description']
 
-        if not name in ["scene-0103", "scene-1077"]:
-            continue
+        # フィルター：指定されたシーンのみ、または全シーン処理
+        if args.scene:
+            if name != args.scene:
+                continue
+        elif args.all_scenes:
+            pass  # 全シーン処理
+        else:
+            # デフォルト: nuScenes miniの特定シーンのみ
+            if not name in ["scene-0103", "scene-1077"]:
+                continue
 
         # Get all image and pose in this scene
         front_camera_images = []
@@ -409,7 +425,8 @@ if __name__ == '__main__':
             # Allocate the images.
             if "gpt" in args.model_path:
                 img = cv2.imdecode(np.frombuffer(base64.b64decode(curr_image), dtype=np.uint8), cv2.IMREAD_COLOR)
-                img = yolo3d_nuScenes(img, calib=obs_camera_params[-1])[0]
+                if not args.no_yolo:
+                    img = yolo3d_nuScenes(img, calib=obs_camera_params[-1])[0]
             else:
                 with open(os.path.join(curr_image), "rb") as image_file:
                     img = cv2.imdecode(np.frombuffer(image_file.read(), dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -449,6 +466,8 @@ if __name__ == '__main__':
                                                                    fut_start_world,
                                                                    atan2(obs_ego_velocities[-1][1],
                                                                          obs_ego_velocities[-1][0]), pred_len)
+            # Set z-coordinate to match the starting position's ground level
+            pred_traj[:, 2] = fut_start_world[2]
 
             # Overlay the trajectory.
             check_flag = OverlayTrajectory(img, pred_traj.tolist(), obs_camera_params[-1], obs_ego_poses[-1], color=(255, 0, 0), args=args)
