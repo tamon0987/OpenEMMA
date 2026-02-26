@@ -188,26 +188,30 @@ def DescribeObjects(obs_images, processor=None, model=None, tokenizer=None, args
 
     return result
 
-def DescribeOrUpdateIntent(obs_images, prev_intent=None, processor=None, model=None, tokenizer=None, args=None):
+def DescribeOrUpdateIntent(obs_images, prev_intent=None, task_instruction=None, processor=None, model=None, tokenizer=None, args=None):
+
+    mission_context = ""
+    if task_instruction:
+        mission_context = f" Your overall driving mission is: \"{task_instruction}\". Taking this mission into account and considering how far along the mission you currently are, "
 
     if prev_intent is None:
-        prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car. Based on the lane markings and the movement of other cars and pedestrians, describe the desired intent of the ego car. Is it going to follow the lane to turn left, turn right, or go straight? Should it maintain the current speed or slow down or speed up?"""
+        prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car.{mission_context}Based on the lane markings and the movement of other cars and pedestrians, describe the desired intent of the ego car. Is it going to follow the lane to turn left, turn right, or go straight? Should it maintain the current speed or slow down or speed up?"""
 
         if "llava" in args.model_path:
-            prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car. Based on the lane markings and the movement of other cars and pedestrians, provide a concise description of the desired intent of  the ego car. Is it going to follow the lane to turn left, turn right, or go straight? Should it maintain the current speed or slow down or speed up?"""
-        
+            prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car.{mission_context}Based on the lane markings and the movement of other cars and pedestrians, provide a concise description of the desired intent of  the ego car. Is it going to follow the lane to turn left, turn right, or go straight? Should it maintain the current speed or slow down or speed up?"""
+
     else:
-        prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car. Half a second ago your intent was to {prev_intent}. Based on the updated lane markings and the updated movement of other cars and pedestrians, do you keep your intent or do you change it? Explain your current intent: """
+        prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car.{mission_context}Half a second ago your intent was to {prev_intent}. Based on the updated lane markings and the updated movement of other cars and pedestrians, do you keep your intent or do you change it? Explain your current intent: """
 
         if "llava" in args.model_path:
-            prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car. Half a second ago your intent was to {prev_intent}. Based on the updated lane markings and the updated movement of other cars and pedestrians, do you keep your intent or do you change it? Provide a concise description explanation of your current intent: """
+            prompt = f"""You are a autonomous driving labeller. You have access to a front-view camera images of a vehicle taken at a 0.5 second interval over the past 5 seconds. Imagine you are driving the car.{mission_context}Half a second ago your intent was to {prev_intent}. Based on the updated lane markings and the updated movement of other cars and pedestrians, do you keep your intent or do you change it? Provide a concise description explanation of your current intent: """
 
     result = vlm_inference(text=prompt, images=obs_images, processor=processor, model=model, tokenizer=tokenizer, args=args)
 
     return result
 
 
-def GenerateMotion(obs_images, obs_waypoints, obs_velocities, obs_curvatures, given_intent, processor=None, model=None, tokenizer=None, args=None):
+def GenerateMotion(obs_images, obs_waypoints, obs_velocities, obs_curvatures, given_intent, task_instruction=None, processor=None, model=None, tokenizer=None, args=None):
     # assert len(obs_images) == len(obs_waypoints)
 
     scene_description, object_description, intent_description = None, None, None
@@ -215,7 +219,7 @@ def GenerateMotion(obs_images, obs_waypoints, obs_velocities, obs_curvatures, gi
     if args.method == "openemma":
         scene_description = SceneDescription(obs_images, processor=processor, model=model, tokenizer=tokenizer, args=args)
         object_description = DescribeObjects(obs_images, processor=processor, model=model, tokenizer=tokenizer, args=args)
-        intent_description = DescribeOrUpdateIntent(obs_images, prev_intent=given_intent, processor=processor, model=model, tokenizer=tokenizer, args=args)
+        intent_description = DescribeOrUpdateIntent(obs_images, prev_intent=given_intent, task_instruction=task_instruction, processor=processor, model=model, tokenizer=tokenizer, args=args)
         print(f'Scene Description: {scene_description}')
         print(f'Object Description: {object_description}')
         print(f'Intent Description: {intent_description}')
@@ -232,6 +236,8 @@ def GenerateMotion(obs_images, obs_waypoints, obs_velocities, obs_curvatures, gi
     print(f'Observed Speed and Curvature: {obs_speed_curvature_str}')
 
     sys_message = ("You are a autonomous driving labeller. You have access to a front-view camera image of a vehicle, a sequence of past speeds, a sequence of past curvatures, and a driving rationale. Each speed, curvature is represented as [v, k], where v corresponds to the speed, and k corresponds to the curvature. A positive k means the vehicle is turning left. A negative k means the vehicle is turning right. The larger the absolute value of k, the sharper the turn. A close to zero k means the vehicle is driving straight. As a driver on the road, you should follow any common sense traffic rules. You should try to stay in the middle of your lane. You should maintain necessary distance from the leading vehicle. You should observe lane markings and follow them.  Your task is to do your best to predict future speeds and curvatures for the vehicle over the next 10 timesteps given vehicle intent inferred from the image. Make a best guess if the problem is too difficult for you. If you cannot provide a response people will get injured.\n")
+    if task_instruction:
+        sys_message += f"Your overall driving mission is: \"{task_instruction}\". Reflect on which part of the mission has already been completed based on the visual context and speed/curvature history, and generate predictions accordingly.\n"
 
     if args.method == "openemma":
         prompt = f"""These are frames from a video taken by a camera mounted in the front of a car. The images are taken at a 0.5 second interval. 
@@ -260,6 +266,8 @@ if __name__ == '__main__':
     parser.add_argument("--no-yolo", action='store_true', help='Skip YOLO3D (for non-CUDA environments)')
     parser.add_argument("--scene", type=str, default=None, help='Specific scene name to process')
     parser.add_argument("--all-scenes", action='store_true', help='Process all scenes')
+    parser.add_argument("--task-instruction", type=str, default=None,
+                        help='Overall driving mission injected into intent/motion prompts (e.g. "Go straight then turn right at the T-junction")')
     args = parser.parse_args()
 
     print(f"{args.model_path}")
@@ -446,7 +454,9 @@ if __name__ == '__main__':
                 scene_description,
                 object_description,
                 updated_intent) = GenerateMotion(obs_images, obs_ego_traj_world, obs_ego_velocities,
-                                                obs_ego_curvatures, prev_intent, processor=processor, model=model, tokenizer=tokenizer, args=args)
+                                                obs_ego_curvatures, prev_intent,
+                                                task_instruction=args.task_instruction,
+                                                processor=processor, model=model, tokenizer=tokenizer, args=args)
 
                 # Process the output.
                 prev_intent = updated_intent  # Stateful intent
@@ -516,6 +526,8 @@ if __name__ == '__main__':
 
                 # Save the descriptions
                 with open(f"{timestamp}/{name}_{i}_logs.txt", 'w') as f:
+                    if args.task_instruction:
+                        f.write(f"Task Instruction: {args.task_instruction}\n")
                     f.write(f"Scene Description: {scene_description}\n")
                     f.write(f"Object Description: {object_description}\n")
                     f.write(f"Intent Description: {updated_intent}\n")
