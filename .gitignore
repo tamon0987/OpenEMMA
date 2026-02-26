@@ -24,3 +24,8 @@ datasets/
 tmp_data/
 *.csv
 .DS_Store
+
+# Obsolete prototypes (replaced by mcap_to_nuscenes.py + main.py)
+nuscenes_inference.py
+mcap_inference.py
+collect_mcap_metadata.py
