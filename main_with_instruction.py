@@ -266,6 +266,7 @@ if __name__ == '__main__':
     parser.add_argument("--no-yolo", action='store_true', help='Skip YOLO3D (for non-CUDA environments)')
     parser.add_argument("--scene", type=str, default=None, help='Specific scene name to process')
     parser.add_argument("--all-scenes", action='store_true', help='Process all scenes')
+    parser.add_argument("--output-dir", type=str, default=None, help='Output directory (overrides default {model}_results/)')
     parser.add_argument("--task-instruction", type=str, default=None,
                         help='Overall driving mission injected into intent/motion prompts (e.g. "Go straight then turn right at the T-junction")')
     args = parser.parse_args()
@@ -319,7 +320,10 @@ if __name__ == '__main__':
         print("模型加载出现异常：", e)
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    timestamp = args.model_path + f"_results/{args.method}/" + timestamp
+    if args.output_dir:
+        timestamp = str(Path(args.output_dir) / timestamp)
+    else:
+        timestamp = args.model_path + f"_results/{args.method}/" + timestamp
     os.makedirs(timestamp, exist_ok=True)
 
     # Load the dataset
